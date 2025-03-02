@@ -1,4 +1,4 @@
-name: testing
+name: Build LineageOS OPlus SM8250 Kernel with KernelSU Next and SUSFS
 
 on:
   workflow_dispatch:
@@ -10,18 +10,14 @@ jobs:
   build:
     name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
-
     steps:
-    # Checkout the repository
     - uses: actions/checkout@v4
     
-    # Set swap space
     - name: Set swap to 10G
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 10
     
-    # Setup the build environment
     - name: Setup build kernel environment
       run: |
         echo "BUILD_TIME=$(TZ=Asia/Shanghai date "+%y%m%d")" >> $GITHUB_ENV
@@ -30,7 +26,6 @@ jobs:
         sudo apt-get install git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib bzip2 libbz2-dev liblz4-tool make squashfs-tools dpkg-dev libssl-dev python3 bc libc6-dev-i386 libncurses5-dev
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
     
-    # Download Clang for AOSP
     - name: Download Clang-aosp
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
@@ -38,15 +33,13 @@ jobs:
         wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz
         tar -C clang-aosp/ -zxvf clang-r487747c.tar.gz
     
-    # Download GCC for AOSP
     - name: Download Gcc-aosp
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        mkdir gcc-64
-        wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
-        tar -C gcc-64/ -zxvf gcc-aarch64.tar.gz
+          mkdir gcc-64
+          wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
+          tar -C gcc-64/ -zxvf gcc-aarch64.tar.gz
     
-    # Download the kernel source
     - name: Download kernel source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
@@ -56,7 +49,6 @@ jobs:
         cd $GITHUB_WORKSPACE/patches
         sed -i '1655 r path_umount.c' $GITHUB_WORKSPACE/kernel_workspace/android-kernel/fs/namespace.c
 
-    # Setup KernelSU Next
     - name: Setup KernelSU Next
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -64,18 +56,21 @@ jobs:
         KSU_VERSION=$(cd KernelSU-Next && expr $(/usr/bin/git rev-list --count HEAD) + 10200)
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
 
-    # Setup SUSFS
     - name: Setup SUSFS
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://gitlab.com/simonpunk/susfs4ksu -b kernel-4.19
+        #git clone https://github.com/WildPlusKernel/kernel_patches
         cp susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch android-kernel/
         cp susfs4ksu/kernel_patches/fs/* android-kernel/fs/
         cp susfs4ksu/kernel_patches/include/linux/* android-kernel/include/linux/
+        #cp kernel_patches/new_hooks.patch android-kernel/
+        #cp kernel_patches/69_hide_stuff.patch android-kernel/
         cd android-kernel
         patch -p1 < 50_add_susfs_in_kernel-4.19.patch || true
+        #patch -p1 -F 3 < new_hooks.patch
+        #patch -p1 -F 3 < 69_hide_stuff.patch
 
-    # Add SUSFS defconfig options
     - name: Add SUSFS defconfig options
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -100,7 +95,6 @@ jobs:
         echo "CONFIG_IP6_NF_TARGET_HL=y" >> arch/arm64/configs/vendor/kona-perf_defconfig
         echo "CONFIG_IP6_NF_MATCH_HL=y" >> arch/arm64/configs/vendor/kona-perf_defconfig
 
-    # Build the kernel
     - name: Build kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -117,7 +111,6 @@ jobs:
         make O=out ARCH=arm64 CC=clang $BA_CMD $EX_CMD $DEFCONFIG
         make -j$(nproc --all) O=out ARCH=arm64 CC=clang $BA_CMD $EX_CMD
 
-    # Check if kernel output files exist
     - name: Check a kernel output files with Kernel
       run: |
        cd $GITHUB_WORKSPACE/kernel_workspace
@@ -128,7 +121,6 @@ jobs:
            exit 1
        fi
 
-    # Make AnyKernel3 zip
     - name: Make AnyKernel3 zip
       if: env.CHECK_IMAGE == 'true'
       run: |
@@ -136,7 +128,6 @@ jobs:
         rm -rf AnyKernel3/Image
         cp android-kernel/out/arch/arm64/boot/Image AnyKernel3/
 
-    # Upload Image
     - name: Upload Image
       if: env.CHECK_IMAGE == 'true'
       uses: actions/upload-artifact@v4
@@ -144,7 +135,6 @@ jobs:
         name: Image-LOS22-OPlus-SM8250-KSUN-SUSFS_${{ env.KSUVER }}
         path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
 
-    # Upload AnyKernel3 zip
     - name: Upload AnyKernel3 zip
       if: env.CHECK_IMAGE == 'true'
       uses: actions/upload-artifact@v4
