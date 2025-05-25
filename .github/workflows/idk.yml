@@ -1,62 +1,94 @@
-name: KernelSU Build
+name: Testing
 
 on:
   workflow_dispatch:
 
+env:
+  TZ: Asia/Shanghai
+
 jobs:
   build:
+    name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential gcc-11 g++-11 clang llvm pkg-config git
+    - name: Prepare Workspace
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+        cd $GITHUB_WORKSPACE/kernel_workspace
 
-      - name: Setup GCC 11
-        run: |
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 --slave /usr/bin/g++ g++ /usr/bin/g++-11
+    - name: Set 10GB Swap
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 10
 
-      - name: Build Patched Kernel
-        env:
-          ARCH: arm64
-          SUBARCH: arm64
-          CC: clang
-          CXX: clang++
-        run: |
-          cd android-kernel
-          make O=out vendor/kona-perf_defconfig
-          make -j$(nproc) O=out
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git ccache flex bison build-essential \
+          libssl-dev bc libncurses5-dev libncursesw5-dev \
+          python3 wget unzip zip curl lzop device-tree-compiler
 
-      - name: KernelSU-Next
-        run: |
-          cd android-kernel
-          git apply ../KernelSU-Next/*.patch
-          make O=out -j$(nproc)
+    - name: Cache Clang Toolchain
+      id: cache-clang
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/kernel_workspace/clang-aosp
+        key: clang-r536225
 
-      - name: Build KernelSU Manager
-        run: |
-          cd android-kernel
-          make O=out modules_prepare
-          make O=out M=../KernelSU-Next/KernelSU-Manager -j$(nproc)
+    - name: Download Clang
+      if: steps.cache-clang.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p clang-aosp
+        wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
+        tar -C clang-aosp -zxvf clang.tar.gz
 
-      - name: Pack zImage and dtb
-        run: |
-          cd android-kernel/out
-          cp arch/arm64/boot/zImage zImage
-          cp arch/arm64/boot/dts/qcom/kona-perf_defconfig.dtb kona-perf_defconfig.dtb
-          tar -czf kernel.tar.gz zImage kona-perf_defconfig.dtb
+    - name: Cache GCC Toolchain
+      id: cache-gcc
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/kernel_workspace/gcc-64
+        key: gcc-aarch64-android-12.1.0_r27
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: kernel
-          path: android-kernel/out/kernel.tar.gz
-          if-no-files-found: error
+    - name: Download GCC
+      if: steps.cache-gcc.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p gcc-64
+        wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
+        tar -C gcc-64 -zxvf gcc-aarch64.tar.gz
 
-      - name: You have not integrate susfs in your kernel.
-        run: |
-          echo "You have not integrate susfs in your kernel."
-          echo "Read: https://gitlab.com/simonpunk/susfs4ksu"
+    - name: Verify GCC Extraction
+      run: |
+        ls -l $GITHUB_WORKSPACE/kernel_workspace/gcc-64
+
+    - name: Clone Kernel Source
+      run: |
+        git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 android-kernel --depth=1
+
+    - name: Patch Kernel with KernelSU and SuSFS
+      run: |
+        cd android-kernel
+        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+
+    - name: Build Patched Kernel
+      env:
+        ARCH: arm64
+        SUBARCH: arm64
+        PATH: ${GITHUB_WORKSPACE}/kernel_workspace/clang-aosp/bin:${GITHUB_WORKSPACE}/kernel_workspace/gcc-64/bin
+        CLANG_TRIPLE: aarch64-linux-gnu-
+        CROSS_COMPILE: ${GITHUB_WORKSPACE}/kernel_workspace/gcc-64/bin/aarch64-linux-android-
+      run: |
+        cd android-kernel
+        make O=out vendor/kona-perf_defconfig
+        make -j$(nproc) O=out
+
+    - name: Upload Built Kernel Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: Patched-Kernel-Image-${GITHUB_SHA}
+        path: ${GITHUB_WORKSPACE}/kernel_workspace/android-kernel/out/arch/arm64/boot/Image
+        if-no-fi
+        les-found: error
