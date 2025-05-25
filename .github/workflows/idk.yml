@@ -1,3 +1,4 @@
+
 name: Testing
 
 on:
@@ -61,7 +62,13 @@ jobs:
 
     - name: Verify GCC Extraction
       run: |
-        ls -l $GITHUB_WORKSPACE/kernel_workspace/gcc-64
+        if [ -d "$GITHUB_WORKSPACE/kernel_workspace/gcc-64" ]; then
+          echo "GCC directory exists"
+          ls -l $GITHUB_WORKSPACE/kernel_workspace/gcc-64
+        else
+          echo "GCC directory does not exist"
+          exit 1
+        fi
 
     - name: Clone Kernel Source
       run: |
@@ -82,13 +89,4 @@ jobs:
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-
         echo "PATH: $PATH"
-        echo "CROSS_COMPILE: $CROSS_COMPILE"
-        ls $GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-gcc
-        make O=out vendor/kona-perf_defconfig
-        make -j$(nproc) O=out
-
-    - name: Upload Built Kernel Image
-      uses: actions/upload-artifact@v4
-      with:
-        name: Patched-Kernel-Image-${GITHUB_SHA}
-        path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
+        echo "CROSS
