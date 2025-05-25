@@ -1,4 +1,4 @@
-name: testing2
+name: Build LineageOS OPlus SM8250 Kernel
 
 on:
   workflow_dispatch:
@@ -10,19 +10,18 @@ jobs:
   build:
     name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
+    env:
+      CLANG_VERSION: clang-r536225
+      GCC_TAG: android-12.1.0_r27
 
     steps:
-    # Step 1: Checkout Kernel Repository
-    - name: Checkout Kernel Repository
-      uses: actions/checkout@v4
-
-    # Step 2: Set swap to 10G
+    - uses: actions/checkout@v4
+    
     - name: Set swap to 10G
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 10
-
-    # Step 3: Setup build environment
+    
     - name: Setup build kernel environment
       run: |
         echo "BUILD_TIME=$(TZ=Asia/Shanghai date "+%y%m%d")" >> $GITHUB_ENV
@@ -31,46 +30,60 @@ jobs:
         sudo apt-get install git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib bzip2 libbz2-dev liblz4-tool make squashfs-tools dpkg-dev libssl-dev python3 bc libc6-dev-i386 libncurses5-dev
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    # Step 4: Download Clang and GCC for AOSP
-    - name: Download Clang-aosp
+    - name: Cache Clang toolchain
+      id: cache-clang
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/kernel_workspace/clang-aosp
+        key: ${{ env.CLANG_VERSION }}
+
+    - name: Download & extract Clang-aosp
+      if: steps.cache-clang.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        mkdir clang-aosp
-        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz
-        tar -C clang-aosp/ -zxvf clang-r487747c.tar.gz
+        mkdir -p clang-aosp
+        wget -O ${CLANG_VERSION}.tar.gz \
+          https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG_VERSION}.tar.gz
+        tar -C clang-aosp -zxvf ${CLANG_VERSION}.tar.gz
 
-    - name: Download GCC-aosp
+    - name: Cache GCC toolchain
+      id: cache-gcc
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/kernel_workspace/gcc-64
+        key: gcc-aarch64-${{ env.GCC_TAG }}
+
+    - name: Download & extract Gcc-aosp
+      if: steps.cache-gcc.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        mkdir gcc-64
-        wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
-        tar -C gcc-64/ -zxvf gcc-aarch64.tar.gz
-
-    # Step 5: Download kernel source
+        mkdir -p gcc-64
+        wget -O gcc-aarch64.tar.gz \
+          https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/${GCC_TAG}.tar.gz
+        tar -C gcc-64 -zxvf gcc-aarch64.tar.gz
+    
     - name: Download kernel source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --recursive https://github.com/DawfukFR/kernel_oneplus_sm8250 -b android-kernel --depth=1
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/scripts
-        sed -i 's/ -dirty//g' setlocalversion
+        git clone --recursive https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b crdroid-11.2 android-kernel --depth=1
+
+    - name: Set up rsuntk KernelSU
+      run: |
         cd $GITHUB_WORKSPACE/patches
         sed -i '1655 r path_umount.c' $GITHUB_WORKSPACE/kernel_workspace/android-kernel/fs/namespace.c
-
-    # Step 6: Setup KernelSU Next
-    - name: Patch KernelSU Next
-      run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
-        KSU_VERSION=$(cd KernelSU-Next && expr $(/usr/bin/git rev-list --count HEAD) + 10200)
+        bash $GITHUB_WORKSPACE/patches/patches.sh
+        echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/vendor/kona-perf_defconfig
+        KSU_VERSION=$(cd KernelSU && expr $(/usr/bin/git rev-list --count HEAD) + 10200)
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+        cd scripts
+        sed -i 's/ -dirty//g' setlocalversion
 
-
-    # Step 9: Build the kernel
-    - name: Build kernel
+    - name: Build kernel with rsuntk KernelSU
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        rm -rf out/arch/arm64/boot/Image
         export ARCH=arm64
         export SUBARCH=arm64
         export BRAND_SHOW_FLAG=oneplus
@@ -82,29 +95,74 @@ jobs:
         DEFCONFIG="vendor/kona-perf_defconfig vendor/debugfs.config"
         make O=out ARCH=arm64 CC=clang $BA_CMD $EX_CMD $DEFCONFIG
         make -j$(nproc --all) O=out ARCH=arm64 CC=clang $BA_CMD $EX_CMD
-
-    # Step 10: Check kernel output
-    - name: Check kernel output
+    
+    - name: Check a kernel output files with rsuntk KernelSU
       run: |
-       cd $GITHUB_WORKSPACE/kernel_workspace
-       if [ -f android-kernel/out/arch/arm64/boot/Image ]; then
+       cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
+       if [ -f arch/arm64/boot/Image ]; then
            echo "CHECK_IMAGE=true" >> $GITHUB_ENV
+           KERNEL_VERSION=$(cat include/config/kernel.release)
+           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
        else
            echo "Kernel output file is empty"
            exit 1
        fi
-
-    # Step 11: Make AnyKernel3 zip
-    - name: Make AnyKernel3 zip
-      if: env.CHECK_IMAGE == 'true'
+      
+    - name: Make AnyKernel3 with rsuntk KernelSU
+      if: ${{ env.CHECK_IMAGE == 'true' }}
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
+        sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
+        sed -i 's!BLOCK=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!BLOCK=auto;!g' AnyKernel3/anykernel.sh
+        sed -i 's/IS_SLOT_DEVICE=0;/IS_SLOT_DEVICE=auto;/g' AnyKernel3/anykernel.sh
         cp android-kernel/out/arch/arm64/boot/Image AnyKernel3/
-        cd AnyKernel3
-        zip -r $GITHUB_WORKSPACE/AK3-LineageOS-OPlus-SM8250-KSUN-SUSFS_${{ env.KSUVER }}-${{ env.BUILD_TIME }}.zip ./*
+        rm -rf AnyKernel3/.git* AnyKernel3/README.md
 
-    # Step 12: Upload Image
     - name: Upload Image
-      if: env.CHECK_IMAGE == 'true'
-     
+      if: ${{ env.CHECK_IMAGE == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: Image
+        path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
+
+    - name: Upload AnyKernel3
+      if: ${{ env.CHECK_IMAGE == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: AK3-LineageOS_22-OPlus-SM8250-KSU_${{ env.KSUVER }}-${{ env.BUILD_TIME }}
+        path: kernel_workspace/AnyKernel3/*
+    
+    - name: Zip files
+      run: |
+        zip -r Image.zip $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/Image
+        cd $GITHUB_WORKSPACE/kernel_workspace/AnyKernel3
+        zip -r $GITHUB_WORKSPACE/AK3-LineageOS_22-OPlus-SM8250-KSU_${{ env.KSUVER }}-${{ env.BUILD_TIME }}.zip ./*
+
+    - name: Send AnyKernel3 to Telegram
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      run: |
+        caption2="\
+        <blockquote><a href=\"https://github.com/rsuntk/KernelSU\"><b>Unofficial KernelSU (rsuntk)</b> - ${{ env.KSUVER }}</a></blockquote>
+        
+        ROM:<blockquote><b>crDroid 11</b></blockquote>
+        Device:<blockquote>OnePlus 8 | OnePlus 8 Pro | OnePlus 8T | OnePlus 9R</blockquote>
+        Kernel Version:<blockquote>${{ env.KERNEL_VERSION }}</blockquote>
+        Build Time:<blockquote>${{ env.BUILD_TIME_1 }}</blockquote>
+        Special Note:
+        <blockquote>The unofficial version is recommended to install an <a href=\"https://github.com/rsuntk/KernelSU/releases\">unofficial manager</a></blockquote>
+        Change Log:<blockquote>Update rsuntk KernelSU to version 1.0.5.</blockquote>
+        
+        <a href=\"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\">Github Action</a>"
+        media=$(jq -n \
+          --arg media1 "attach://anykernel3" \
+          --arg media2 "attach://Image" \
+          --arg caption2 "$caption2" \
+          '[{type: "document", media: $media1, parse_mode: "HTML"},
+            {type: "document", media: $media2, caption: $caption2, parse_mode: "HTML"}]')
+        curl "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMediaGroup?chat_id=$TELEGRAM_CHAT_ID" \
+            -F "media=$media" \
+            -F anykernel3="@$GITHUB_WORKSPACE/AK3-LineageOS_22-OPlus-SM8250-KSU_${{ env.KSUVER }}-${{ env.BUILD_TIME }}.zip" \
+            -F Image="@$GITHUB_WORKSPACE/Image.zip"
