@@ -1,7 +1,7 @@
 name: Build Patched Kernel (KernelSU Next + SuSFS)
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
