@@ -1,14 +1,23 @@
 name: Testing
+
 on:
   workflow_dispatch:
+
 env:
   TZ: Asia/Shanghai
+
 jobs:
   build:
     name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
+
     steps:
     - uses: actions/checkout@v4
+
+    - name: Prepare Workspace
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+        cd $GITHUB_WORKSPACE/kernel_workspace
 
     - name: Set 10GB Swap
       uses: pierotofy/set-swap-space@master
@@ -22,9 +31,6 @@ jobs:
           libssl-dev bc libncurses5-dev libncursesw5-dev \
           python3 wget unzip zip curl lzop device-tree-compiler
 
-    - name: Prepare Workspace
-      run: mkdir -p $GITHUB_WORKSPACE/kernel_workspace
-
     - name: Cache Clang Toolchain
       id: cache-clang
       uses: actions/cache@v4
@@ -35,7 +41,6 @@ jobs:
     - name: Download Clang
       if: steps.cache-clang.outputs.cache-hit != 'true'
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
         mkdir -p clang-aosp
         wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
         tar -C clang-aosp -zxvf clang.tar.gz
@@ -50,35 +55,40 @@ jobs:
     - name: Download GCC
       if: steps.cache-gcc.outputs.cache-hit != 'true'
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
         mkdir -p gcc-64
         wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
         tar -C gcc-64 -zxvf gcc-aarch64.tar.gz
 
+    - name: Verify GCC Extraction
+      run: |
+        ls -l $GITHUB_WORKSPACE/kernel_workspace/gcc-64
+
     - name: Clone Kernel Source
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 android-kernel --depth=1
 
     - name: Patch Kernel with KernelSU and SuSFS
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        cd android-kernel
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
     - name: Build Patched Kernel
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        cd android-kernel
         export ARCH=arm64
         export SUBARCH=arm64
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-
+        echo "PATH: $PATH"
+        echo "CROSS_COMPILE: $CROSS_COMPILE"
+        ls $GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-gcc
         make O=out vendor/kona-perf_defconfig
         make -j$(nproc) O=out
 
     - name: Upload Built Kernel Image
       uses: actions/upload-artifact@v4
       with:
-        name: Patched-Kernel-Image
+        name: Patched-Kernel-Image-${GITHUB_SHA}
         path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
