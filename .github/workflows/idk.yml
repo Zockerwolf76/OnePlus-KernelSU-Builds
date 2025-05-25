@@ -1,49 +1,65 @@
-
-name: KernelSU and SuSFS Integration
+name: KernelSU Build
 
 on:
-  workflow_dispatch:
-
-env:
-  TZ: Asia/Shanghai
+  push:
+    branches:
+      - main
 
 jobs:
   build:
-    name: Integrate KernelSU and SuSFS
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git curl
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-11 g++-11 clang llvm pkg-config git
 
-    - name: Clone Kernel Source
-      run: |
-        git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 android-kernel --depth=1
+      - name: Setup GCC 11
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 --slave /usr/bin/g++ g++ /usr/bin/g++-11
 
-    - name: Integrate KernelSU
-      run: |
-        cd android-kernel
-        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+      - name: Build Patched Kernel
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
+          CC: clang
+          CXX: clang++
+        run: |
+          cd android-kernel
+          make O=out vendor/kona-perf_defconfig
+          make -j$(nproc) O=out
 
-    - name: Integrate SuSFS
-      run: |
-        cd android-kernel
-        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+      - name: KernelSU-Next
+        run: |
+          cd android-kernel
+          git apply ../KernelSU-Next/*.patch
+          make O=out -j$(nproc)
 
-    - name: Build Patched Kernel
-      run: |
-        cd android-kernel
-        export ARCH=arm64
-        export SUBARCH=arm64
-        make O=out vendor/kona-perf_defconfig
-        make -j$(nproc) O=out
+      - name: Build KernelSU Manager
+        run: |
+          cd android-kernel
+          make O=out modules_prepare
+          make O=out M=../KernelSU-Next/KernelSU-Manager -j$(nproc)
 
-    - name: Upload Built Kernel Image
-      uses: actions/upload-artifact@v4
-      with:
-        name: Patched-Kernel-Image-${GITHUB_SHA}
-        path: android-kernel/out/arch/arm64/boot/Image
+      - name: Pack zImage and dtb
+        run: |
+          cd android-kernel/out
+          cp arch/arm64/boot/zImage zImage
+          cp arch/arm64/boot/dts/qcom/kona-perf_defconfig.dtb kona-perf_defconfig.dtb
+          tar -czf kernel.tar.gz zImage kona-perf_defconfig.dtb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel
+          path: android-kernel/out/kernel.tar.gz
+          if-no-files-found: error
+
+      - name: You have not integrate susfs in your kernel.
+        run: |
+          echo "You have not integrate susfs in your kernel."
+          echo "Read: https://gitlab.com/simonpunk/
+          susfs4ksu"
