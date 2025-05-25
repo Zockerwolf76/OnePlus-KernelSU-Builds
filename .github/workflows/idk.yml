@@ -1,9 +1,7 @@
 name: KernelSU Build
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -61,5 +59,4 @@ jobs:
       - name: You have not integrate susfs in your kernel.
         run: |
           echo "You have not integrate susfs in your kernel."
-          echo "Read: https://gitlab.com/simonpunk/
-          susfs4ksu"
+          echo "Read: https://gitlab.com/simonpunk/susfs4ksu"
