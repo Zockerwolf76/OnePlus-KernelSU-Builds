@@ -1,4 +1,4 @@
-name: Build Patched Prebuilt Kernel to Boot.img
+name: Build Patched Kernel (KernelSU Next + SuSFS)
 
 on:
   workflow_dispatch:
@@ -8,52 +8,50 @@ env:
 
 jobs:
   build:
-    name: Build Boot.img by ${{ github.actor }}
+    name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set swap to 10G
+    - name: Set 10GB Swap
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 10
 
-    - name: Install build dependencies
+    - name: Install Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git ccache flex bison build-essential \
           libssl-dev bc libncurses5-dev libncursesw5-dev \
-          python3 wget unzip zip curl lzop device-tree-compiler \
-          mkbootimg
+          python3 wget unzip zip curl lzop device-tree-compiler
 
-    - name: Setup workspace
-      run: |
-        mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+    - name: Prepare Workspace
+      run: mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    - name: Cache Clang toolchain
+    - name: Cache Clang Toolchain
       id: cache-clang
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/kernel_workspace/clang-aosp
         key: clang-r536225
 
-    - name: Download & extract Clang
+    - name: Download Clang
       if: steps.cache-clang.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         mkdir -p clang-aosp
-        wget -O clang-r536225.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
-        tar -C clang-aosp -zxvf clang-r536225.tar.gz
+        wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
+        tar -C clang-aosp -zxvf clang.tar.gz
 
-    - name: Cache GCC toolchain
+    - name: Cache GCC Toolchain
       id: cache-gcc
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/kernel_workspace/gcc-64
         key: gcc-aarch64-android-12.1.0_r27
 
-    - name: Download & extract GCC
+    - name: Download GCC
       if: steps.cache-gcc.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
@@ -61,18 +59,19 @@ jobs:
         wget -O gcc-aarch64.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
         tar -C gcc-64 -zxvf gcc-aarch64.tar.gz
 
-    - name: Clone prebuilt kernel source
+    - name: Clone Kernel Source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 --depth=1
+        git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 android-kernel --depth=1
 
-    - name: Patch kernel with 2 curl commands
+    - name: Patch Kernel with KernelSU and SuSFS
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
-    - name: Build kernel
+    - name: Build Patched Kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export ARCH=arm64
@@ -80,30 +79,12 @@ jobs:
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=aarch64-linux-android-
-
         make O=out vendor/kona-perf_defconfig
         make -j$(nproc) O=out
 
-    - name: Build boot.img
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        ls -lh out/arch/arm64/boot/Image
-
-        # Copy or download required ramdisk.img and dtb.img
-        cp /path/to/ramdisk.img ramdisk.img
-        cp out/arch/arm64/boot/dtb.img dtb.img || echo "No dtb.img found"
-
-        mkbootimg \
-          --kernel out/arch/arm64/boot/Image \
-          --ramdisk ramdisk.img \
-          --dtb dtb.img \
-          --base 0x00000000 \
-          --pagesize 2048 \
-          --cmdline "console=ttyMSM0,115200n8 androidboot.hardware=qcom" \
-          -o boot.img
-
-    - name: Upload boot.img
+    - name: Upload Built Kernel Image
       uses: actions/upload-artifact@v4
       with:
-        name: boot.img
-        path: $GITHUB_WORKSPACE/kernel_workspace/android-kernel/boot.img
+        name: Patched-Kernel-Image
+        path: kernel_workspace/android-kernel/out/arch
+        /arm64/boot/Image
