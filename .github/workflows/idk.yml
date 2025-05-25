@@ -10,7 +10,6 @@ jobs:
   build:
     name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
 
@@ -67,7 +66,6 @@ jobs:
     - name: Patch Kernel with KernelSU and SuSFS
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
@@ -77,10 +75,8 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin:$PATH
-        export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-
-        export CROSS_COMPILE=aarch64-linux-android-
         make O=out vendor/kona-perf_defconfig
         make -j$(nproc) O=out
 
@@ -88,4 +84,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Patched-Kernel-Image
-        path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
+        path: kernel_workspace/android-kernel/out/arch/ar
+        m64/boot/Image
