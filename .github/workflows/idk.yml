@@ -15,12 +15,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Prepare Workspace
-        run: |
-          mkdir -p kernel_workspace
-          cd kernel_workspace
-
-      - name: Set 10GB Swap
+      - name: Set Swap
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
@@ -29,9 +24,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git ccache flex bison build-essential libssl-dev bc \
-            libncurses5-dev libncursesw5-dev make python3 wget \
-            unzip zip curl lzop device-tree-compiler
+            git curl wget unzip zip lzop \
+            bc bison build-essential \
+            ccache device-tree-compiler \
+            flex libssl-dev \
+            libncurses5-dev libncursesw5-dev \
+            make python3
+
+          echo "Checking make version:"
+          make --version
 
       - name: Cache Clang Toolchain
         id: cache-clang
@@ -40,7 +41,7 @@ jobs:
           path: kernel_workspace/clang-aosp
           key: clang-r536225
 
-      - name: Download Clang (if cache miss)
+      - name: Download Clang (if not cached)
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           mkdir -p kernel_workspace/clang-aosp
@@ -54,7 +55,7 @@ jobs:
           path: kernel_workspace/gcc-64
           key: gcc-aarch64-android-12.1.0_r27
 
-      - name: Download GCC (if cache miss)
+      - name: Download GCC (if not cached)
         if: steps.cache-gcc.outputs.cache-hit != 'true'
         run: |
           mkdir -p kernel_workspace/gcc-64
@@ -63,31 +64,30 @@ jobs:
 
       - name: Clone Kernel Source
         run: |
-          git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 kernel_workspace/android-kernel --depth=1
+          mkdir -p kernel_workspace
+          cd kernel_workspace
+          git clone https://github.com/crdroidandroid/android_kernel_oneplus_sm8250 -b 15.0 android-kernel --depth=1
 
       - name: Patch Kernel with KernelSU and SuSFS
         run: |
           cd kernel_workspace/android-kernel
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+          curl -LSs https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
+          curl -LSs https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh | bash -s next-susfs
 
-      - name: Build Patched Kernel
+      - name: Build Kernel
         env:
           ARCH: arm64
           SUBARCH: arm64
           CLANG_TRIPLE: aarch64-linux-gnu-
           CROSS_COMPILE: ${{ github.workspace }}/kernel_workspace/gcc-64/bin/aarch64-linux-android-
-          PATH: ${{ github.workspace }}/kernel_workspace/clang-aosp/bin:${{ github.workspace }}/kernel_workspace/gcc-64/bin:${{ env.PATH }}
+          PATH: ${{ github.workspace }}/kernel_workspace/clang-aosp/bin:${{ github.workspace }}/kernel_workspace/gcc-64/bin:/usr/bin:/bin:/usr/sbin:/sbin
         run: |
           cd kernel_workspace/android-kernel
           make O=out clean
           make O=out vendor/kona-perf_defconfig
           make -j$(nproc) O=out
 
-      - name: List Output Files
-        run: ls -al kernel_workspace/android-kernel/out/arch/arm64/boot/
-
-      - name: Upload Built Kernel Image
+      - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
           name: Patched-Kernel-Image-${{ github.sha }}
