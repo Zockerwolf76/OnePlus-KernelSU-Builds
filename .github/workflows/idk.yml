@@ -28,7 +28,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y git ccache flex bison build-essential \
-          libssl-dev bc libncurses5-dev libncursesw5-dev \
+          libssl-dev bc libncurses5-dev libncursesw5-dev make \
           python3 wget unzip zip curl lzop device-tree-compiler
 
     - name: Cache Clang Toolchain
