@@ -45,21 +45,21 @@ jobs:
           wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
           tar -C kernel_workspace/clang-aosp -zxvf clang.tar.gz
 
-      - name: Cache GCC Toolchain
+      - name: Cache GCC Toolchain (NDK)
         id: cache-gcc
         uses: actions/cache@v4
         with:
           path: kernel_workspace/gcc-64
-          key: working-arm64-gcc-20231207
+          key: ndk-r25c-gcc-toolchain
 
-      - name: Download and Extract GCC (if not cached)
+      - name: Download and Extract GCC (NDK r25c) if not cached
         if: steps.cache-gcc.outputs.cache-hit != 'true'
         run: |
           mkdir -p kernel_workspace
           cd kernel_workspace
-          wget https://github.com/mvaisakh/gcc-builds/releases/download/arm64-20231207/arm64-20231207.tar.gz
-          tar -xf arm64-20231207.tar.gz
-          mv aarch64-linux-android-* gcc-64
+          wget https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          unzip android-ndk-r25c-linux.zip
+          mv android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64 gcc-64
 
       - name: Clone Kernel Source
         run: |
