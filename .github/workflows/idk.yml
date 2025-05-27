@@ -92,5 +92,4 @@ jobs:
         with:
           name: Patched-Kernel-Image-${{ github.sha }}
           path: kernel_workspace/android-kernel/out/arch/arm64/boot/Image
-          if-no-fi
-          les-found: error
+          if-no-files-found: error
