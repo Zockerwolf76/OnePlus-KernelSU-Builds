@@ -29,7 +29,7 @@ jobs:
             ccache device-tree-compiler \
             flex libssl-dev \
             libncurses5-dev libncursesw5-dev \
-            make python3
+            make python3 jq
 
           echo "Checking make version:"
           make --version
@@ -53,14 +53,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: kernel_workspace/gcc-64
-          key: gcc-aarch64-android-12.1.0_r27
+          key: working-arm64-gcc-20231207
 
       - name: Download GCC (if not cached)
         if: steps.cache-gcc.outputs.cache-hit != 'true'
         run: |
-          mkdir -p kernel_workspace/gcc-64
-          wget -O gcc.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
-          tar -C kernel_workspace/gcc-64 -zxvf gcc.tar.gz
+          cd kernel_workspace
+          wget https://github.com/mvaisakh/gcc-builds/releases/download/arm64-20231207/arm64-20231207.tar.gz
+          tar -xf arm64-20231207.tar.gz
+          mv aarch64-linux-android-* gcc-64
 
       - name: Clone Kernel Source
         run: |
